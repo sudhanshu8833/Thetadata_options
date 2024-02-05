@@ -1,0 +1,11 @@
+#IBKR
+username - eseven214
+pass - es19sh18
+
+
+#theta data
+Username - A6883383@gmail.com
+password - EshBufon
+
+#Terminal Startup command
+java -jar ThetaTerminal.jar a6883383@gmail.com EshBufon

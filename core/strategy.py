@@ -6,6 +6,7 @@ import os
 import json
 import numpy as np
 import time
+import asyncio
 
 BASE_DIR=os.path.dirname(os.path.realpath(__file__))
 json_path=os.path.join(BASE_DIR,'tickers.json')
@@ -59,7 +60,7 @@ class thetaData:
         for expiry in expirations:
             self.manage_quotes(instrument,expiry)
 
-    def update_stock_price(self,instrument):
+    async def update_stock_price(self,instrument):
         try:
             response=requests.get(self.get_ticker_price(instrument)).json()['response']
             self.stock_price[instrument]=response[0][-2]
@@ -115,14 +116,14 @@ class thetaData:
         sorted_df.to_csv(file_path)
         self.df=sorted_df
 
-    def main(self):
+    async def main(self):
         tickers=requests.get(self.get_roots_url).json()['response']
 
         for ticker in tickers[:500]:
             if ticker in blocked_ticker:
                 continue
 
-            self.update_stock_price(ticker)
+            await self.update_stock_price(ticker)
             self.base_called(ticker)
 
         self.final_list={}

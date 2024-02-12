@@ -122,7 +122,6 @@ class thetaData:
         for ticker in tickers[:500]:
             if ticker in blocked_ticker:
                 continue
-
             await self.update_stock_price(ticker)
             self.base_called(ticker)
 

@@ -32,11 +32,21 @@ class ThetaData:
         async with session.get(url) as response:
             response=await response.json()
             return response['response']
+    
+    async def option_trade_price(self, session, instrument, expiry, contract, strike):
+        if str(expiry) == "nan":
+            return  # Return if expiry is empty
+
+        url = f"http://127.0.0.1:25510/snapshot/option/trade?root={instrument}&exp={expiry}&right={contract}&strike={strike}"
+        async with session.get(url) as response:
+            response = await response.json()
+            return response['response'][0][-2]
+
 
     async def get_ticker_price(self, session, instrument):
         url = f"http://127.0.0.1:25510/v2/snapshot/stock/trade?root={instrument}"
         async with session.get(url) as response:
-            response=await response.json()
+            response = await response.json()
             return response['response']
 
     def convert_to_datetime(self, date_value):
@@ -63,8 +73,10 @@ class ThetaData:
     async def base_called(self, session, instrument):
         expirations = await self.get_expirations(session, instrument)
         self.json_data[instrument] = {}
-        for expiry in expirations['response']:
-            await self.manage_quotes(session, instrument, expiry)
+        # for expiry in expirations['response']:
+        #     await self.manage_quotes(session, instrument, expiry)
+
+        await asyncio.gather(*[self.manage_quotes(session, instrument,expiry) for expiry in expirations['response']])
 
     async def update_stock_price(self, session, instrument):
         try:
@@ -78,13 +90,15 @@ class ThetaData:
     async def gather_calls(self, session, ticker):
         try:
             print(ticker)
-            if ticker in blocked_ticker:
+
+            if ticker in blocked_ticker or len(ticker)>4:
                 return
 
             await self.update_stock_price(session, ticker)
             await self.base_called(session, ticker)
         except:
             print(f"Exception came for {ticker}")
+
     def convert_to_df(self):
         df = pd.DataFrame.from_dict(self.final_list, orient='index')
         df.index.name = 'ticker'
@@ -95,22 +109,26 @@ class ThetaData:
         for i in range(len(df.columns)):
             if i == 0:
                 new_columns[i] = 'ticker_price'
-            elif (i - 1) % 3 == 0:
-                new_columns[i] = f'call_{(i - 1) // 3 + 1}'
-            elif (i - 1) % 3 == 1:
-                new_columns[i] = f'put_{(i - 1) // 3 + 1}'
+            elif (i - 1) % 5 == 0:
+                new_columns[i] = f'call_{(i - 1) // 5 + 1}'
+            elif (i - 1) % 5 == 1:
+                new_columns[i] = f'put_{(i - 1) // 5 + 1}'
+            elif (i - 1) % 5 == 2:
+                new_columns[i] = f'difference_{(i - 1) // 5 + 1}'
+            elif (i - 1) % 5 == 3:
+                new_columns[i] = f'strike_{(i - 1) // 5 + 1}'
             else:
-                new_columns[i] = f'difference_{(i - 1) // 3 + 1}'
+                new_columns[i] = f'expiry_{(i - 1) // 5 + 1}'
 
 
         df.rename(columns=new_columns, inplace=True)
         sorted_df = df.sort_values(by='difference_1', ascending=False)
 
         columns = sorted_df.columns
-        new_row_data = {col: [np.nan] * len(blocked_ticker) if col != 'ticker' else blocked_ticker for col in columns}
-        sorted_df = sorted_df._append(pd.DataFrame(new_row_data), ignore_index=True)
-        file_path=os.path.join(os.path.dirname(BASE_DIR),'output.csv')
-        sorted_df.to_csv(file_path)
+        # new_row_data = {col: [np.nan] * len(blocked_ticker) if col != 'ticker' else blocked_ticker for col in columns}
+        # sorted_df = sorted_df._append(pd.DataFrame(new_row_data), ignore_index=True)
+        # file_path=os.path.join(os.path.dirname(BASE_DIR),'output.csv')
+        # sorted_df.to_csv(file_path)
         self.df=sorted_df
 
     def closest_strike(self,dictionary, value):
@@ -123,18 +141,59 @@ class ThetaData:
         temp_list.append(self.stock_price[instrument])
 
         for expiry,strikes in value.items():
-            closest_key=self.closest_strike(strikes,self.stock_price[instrument])
+            closest_key=self.closest_strike(strikes,self.stock_price[instrument]*1000)
             call=strikes[closest_key]['C']
             put=strikes[closest_key]['P']
             temp_list.append(call)
             temp_list.append(put)
             percentage_difference=((call-put)/self.stock_price[instrument])*100
             temp_list.append(percentage_difference)
+            temp_list.append(str(closest_key))
+            temp_list.append(str(expiry))
+
         return temp_list
+
+
+    async def calculate_row_prices(self, session, index, row):
+        # print(index, row)
+        for column_name, value in row.items():
+            if(str(row['ticker_price'])=="nan"):
+                return
+            try:
+                if column_name.startswith('call_'):
+                    number = column_name.split('_')[-1]
+                    strike = row[f'strike_{number}']
+                    expiry = row[f'expiry_{number}']
+
+                    call_price = await self.option_trade_price(session, row['ticker'], expiry, "C", strike)
+                    if call_price == None:
+                        print("EXXXXXX")
+                        return
+                    self.df.at[index, column_name] = call_price
+
+                if column_name.startswith('put_'):
+                    number = column_name.split('_')[-1]
+                    strike = row[f'strike_{number}']
+                    expiry = row[f'expiry_{number}']
+
+                    put_price = await self.option_trade_price(session, row['ticker'], expiry, "P", strike)
+                    self.df.at[index, column_name] = put_price
+
+                if column_name.startswith('difference_'):
+                    number = column_name.split('_')[-1]
+                    call_price = row[f'call_{number}']
+                    put_price = row[f'put_{number}']
+                    self.df.at[index, f'difference_{number}'] = ((call_price - put_price) / self.stock_price[row['ticker']]) * 100
+            except Exception as e:
+                print(str(e))
+                
+    async def update_options_trade_price(self):
+        async with aiohttp.ClientSession() as session:
+            await asyncio.gather(*[self.calculate_row_prices(session, index, row) for index, row in self.df.iterrows()])
 
     async def main(self):
         async with aiohttp.ClientSession() as session:
-            tickers = requests.get(self.get_roots_url).json()['response']
+            tickers = requests.get(self.get_roots_url).json()['response'][:100]
             await asyncio.gather(*[self.gather_calls(session, arg) for arg in tickers])
 
         self.final_list={}
@@ -146,10 +205,14 @@ class ThetaData:
 
                 temp_list=self.generate_list(key,value)
                 self.final_list[key]=temp_list
+                
             except:
                 print("ERROR OCCURED in analysis")
 
         self.convert_to_df()
+        self.df.to_csv("before.csv")
+        await self.update_options_trade_price()
+        self.df.to_csv("after.csv")
         with open(json_path,'w') as json_file:
             json.dump({"blocked":blocked_ticker},json_file,indent=4)
 

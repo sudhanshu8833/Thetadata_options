@@ -1,0 +1,16 @@
+import pandas as pd
+import numpy as np
+
+# Create a dictionary with some data
+data = {'A': [1, 2, np.nan, 4],
+        'B': [5, np.nan, 7, 8],
+        'C': [9, 10, 11, np.nan]}
+
+# Create a DataFrame from the dictionary
+df = pd.DataFrame(data)
+
+# Print the DataFrame
+print(df)
+print(type(df['C'].iloc[-1]))
+if str(df['C'].iloc[-1]) == "nan":
+    print("True")

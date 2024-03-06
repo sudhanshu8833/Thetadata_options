@@ -1,0 +1,6 @@
+from datetime import datetime,timedelta
+
+def convert_to_YYYMMDD(date):
+    return date.strftime("%Y%m%d")
+
+print(convert_to_YYYMMDD(datetime.now()-timedelta(days=4)))

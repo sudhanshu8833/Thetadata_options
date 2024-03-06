@@ -1,6 +1,3 @@
-from datetime import datetime,timedelta
-
-def convert_to_YYYMMDD(date):
-    return date.strftime("%Y%m%d")
-
-print(convert_to_YYYMMDD(datetime.now()-timedelta(days=4)))
+import requests
+response = requests.get("http://127.0.0.1:25510/v2/hist/option/eod?root=A&exp=20240315&strike=145000&right=C&start_date=20240303&end_date=20240306").json()
+print(response['response'][-1][5])

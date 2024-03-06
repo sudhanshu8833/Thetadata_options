@@ -6,6 +6,7 @@ import os
 import json
 import numpy as np
 import time
+import traceback
 
 BASE_DIR=os.path.dirname(os.path.realpath(__file__))
 json_path=os.path.join(BASE_DIR,'tickers.json')
@@ -13,10 +14,12 @@ blocked_ticker=[]
 with open(json_path,'r') as json_file:
     blocked_ticker=json.load(json_file)['blocked']
 
+
 data={}
 data_path=os.path.join(BASE_DIR,'data.json')
 with open(data_path,'r') as json_file:
     data=json.load(json_file)
+
 
 class thetaData:
     def __init__(self):
@@ -24,7 +27,7 @@ class thetaData:
         self.json_data={}
         self.currency="ask"
         self.stock_price={}
-        self.day=True
+        self.day=False
 
 
     def get_expirations(self, instrument):
@@ -45,11 +48,11 @@ class thetaData:
     def get_EOD(self,instrument,expiry,strike,right):
         today_date=self.convert_to_YYYMMDD(datetime.now())
         four_days_back=self.convert_to_YYYMMDD(datetime.now()-timedelta(days=4))
-        response = requests.get(f"http://127.0.0.1:25510/v2/hist/option/eod?root={instrument}&exp={expiry}&strike={strike}&right={right}&start_date={today_date}&end_date={four_days_back}").json()['response']
-        response=response[-1][5]
+        response = requests.get(f"http://127.0.0.1:25510/v2/hist/option/eod?root={instrument}&exp={expiry}&strike={strike}&right={right}&start_date={four_days_back}&end_date={today_date}").json()
+        response=response['response'][-1][5]
         return response
 
-    def option_trade_price(self, session, instrument, expiry, contract, strike):
+    def option_trade_price(self, instrument, expiry, contract, strike):
         if str(expiry) == "nan":
             return 0
         response=requests.get(f"http://127.0.0.1:25510/snapshot/option/trade?root={instrument}&exp={expiry}&right={contract}&strike={strike}").json()['response']
@@ -72,8 +75,12 @@ class thetaData:
         closest_key=0
 
         if self.day:
-            json_data=data['json_data'][instrument][expiry]
-            closest_key=self.closest_strike(json_data,self.stock_price[instrument]*1000)
+            try:
+                self.json_data[instrument][expiry]=data['json_data'][instrument][expiry]
+                closest_key=self.closest_strike(self.json_data[instrument][expiry],self.stock_price[instrument]*1000)
+            except Exception as e:
+                print(traceback.format_exc())
+                return
 
         else:
             quotes=self.get_bulk_quotes(instrument,expiry)
@@ -85,6 +92,8 @@ class thetaData:
                     json_data[d['contract']['strike']]={}
                 json_data[d['contract']['strike']][d['contract']['right']]=d['tick'][-3]
             closest_key=self.closest_strike(json_data,self.stock_price[instrument]*1000)
+            self.json_data[instrument][expiry]=json_data
+
 
         call=self.option_trade_price(instrument,expiry,'C',closest_key)
         if(call!=0):
@@ -92,25 +101,28 @@ class thetaData:
         else:
             self.json_data[instrument][expiry][closest_key]['C']=self.get_EOD(instrument,expiry,closest_key,'C')
 
-
         put=self.option_trade_price(instrument,expiry,'P',closest_key)
         if(put!=0):
             self.json_data[instrument][expiry][closest_key]['P']=put
         else:
             self.json_data[instrument][expiry][closest_key]['P']=self.get_EOD(instrument,expiry,closest_key,'P')
-        self.json_data[instrument][expiry]=json_data
+        
 
     def base_called(self,instrument):
         expirations=self.get_expirations(instrument)
         self.json_data[instrument]={}
         for expiry in expirations:
-            self.manage_quotes(instrument,expiry)
+            self.manage_quotes(instrument,str(expiry))
 
     def update_stock_price(self,instrument):
         if (self.day):
+            try:
                 self.stock_price[instrument]=data['stock_price'][instrument]
                 return
-                
+            except:
+                self.stock_price[instrument]="NA"
+                return
+
         try:
             response=self.get_ticker_price(instrument)
             self.stock_price[instrument]=response[0][-2]
@@ -120,7 +132,7 @@ class thetaData:
 
     def closest_strike(self,dictionary, value):
         filtered_keys = dictionary.keys()  # Assuming you don't need to filter the keys
-        return min(filtered_keys, key=lambda key: abs(key - value))
+        return min(filtered_keys, key=lambda key: abs(int(key) - int(value)))
 
     def generate_list(self,instrument,value):
         temp_list=[]
@@ -155,7 +167,7 @@ class thetaData:
             else:
                 new_columns[i] = f'difference_{(i - 1) // 3 + 1}'
 
-
+        print(df)
         df.rename(columns=new_columns, inplace=True)
         sorted_df = df.sort_values(by='difference_1', ascending=False)
 
@@ -169,15 +181,19 @@ class thetaData:
     def main(self):
         tickers=requests.get(self.get_roots_url).json()['response']
 
-        for ticker in tickers[:100]:
-            try:
+        for ticker in tickers[:90]:
+            # try:
+                print(ticker)
                 if ticker in blocked_ticker:
                     continue
 
                 self.update_stock_price(ticker)
                 self.base_called(ticker)
-            except:
-                print(f"Exception came for {ticker}")
+                if (ticker=="AA"):
+                    break
+
+            # except:
+            #     print(f"Exception came for {ticker}")
 
         self.final_list={}
         for key,value in self.json_data.items():

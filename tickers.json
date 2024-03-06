@@ -1,0 +1,11 @@
+{
+	"header": {
+		"latency_ms": 1161,
+		"next_page": "null",
+		"format": ["ms_of_day","ms_of_day2","open","high","low","close","volume","count","bid_size","bid_exchange","bid","bid_condition","ask_size","ask_exchange","ask","ask_condition","date"]
+ 	},
+	"response": [
+		[62456749,57068702,0.77,2.22,0.73,2.22,123,33,400,9,1.15,50,2,69,1.95,50,20240304],
+		[62309121,56717490,2.85,3.60,2.05,2.30,88,29,30,9,2.25,50,8,11,2.60,50,20240305]
+ 	]
+}
